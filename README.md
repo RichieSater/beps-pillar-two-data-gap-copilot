@@ -26,6 +26,8 @@ Optional AI narrative: `export ANTHROPIC_API_KEY=...` and flip the "Draft memo n
 
 ---
 
+> 🎤 **Presenting this?** The full presenter script — exact clicks, talking points, interactive beats, Q&A cheat sheet, troubleshooting — is in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md).
+
 ## The 5-minute demo script
 
 0. **Demo story (📖 tab).** Meet **Aurora Global Group** — a fully synthetic €1.2bn consumer-electronics multinational built for this demo: a low-ETR Irish holding company, a people-light Singapore IP hub, a half-onboarded UK acquisition, and four source systems that don't agree. The tab tells the story and lists every problem planted in the data.
