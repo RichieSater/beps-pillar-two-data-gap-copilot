@@ -1,4 +1,4 @@
-"""End-to-end test against the synthetic Aurora sample files (the demo path)."""
+"""End-to-end test against the synthetic Atlas sample files (the demo path)."""
 
 import json
 from pathlib import Path
@@ -47,17 +47,17 @@ def test_all_six_entities_reconciled(pipeline):
     _, _, entity_df, _, matches, _ = pipeline
     assert len(entity_df) == 6
     fuzzy = [m for m in matches if m["status"] == "fuzzy"]
-    assert any(m["candidate"] == "Aurora UK Service Ltd" for m in fuzzy)
+    assert any(m["candidate"] == "Atlas UK Service Ltd" for m in fuzzy)
     assert not [m for m in matches if m["status"] == "unmatched"]
 
 
 def test_known_planted_gaps_are_found(pipeline):
     *_, gaps = pipeline
     found = {(g["entity"], g["field"]) for g in gaps}
-    assert ("Aurora IE Holdings Limited", "deferred_tax_expense") in found
-    assert ("Aurora SG IP Pte Ltd", "payroll_costs") in found
-    assert ("Aurora NL B.V.", "tangible_asset_carrying_value") in found
-    assert ("Aurora UK Services Ltd", "jurisdiction") in found
+    assert ("Atlas IE Holdings Limited", "deferred_tax_expense") in found
+    assert ("Atlas SG IP Pte Ltd", "payroll_costs") in found
+    assert ("Atlas NL B.V.", "tangible_asset_carrying_value") in found
+    assert ("Atlas UK Services Ltd", "jurisdiction") in found
 
 
 def test_safe_harbour_story(pipeline):
@@ -76,7 +76,7 @@ def test_memo_and_exports_render(pipeline):
     sh = safe_harbour_triage(entity_df, jurisdiction_df, 2026)
     narrative = build_fallback_narrative(score, gaps, sh)
     memo = memo_to_markdown(narrative, score, gaps, summary, sh, mappings,
-                            "Aurora Global Group", 2026, "Deterministic draft")
+                            "Atlas Components Group", 2026, "Deterministic draft")
     assert "Pillar Two Data Readiness Memo" in memo
     assert "Appendix B" in memo
 
@@ -85,7 +85,7 @@ def test_memo_and_exports_render(pipeline):
 
     package = build_audit_package({"f.csv": "abc"}, mappings, matches, gaps, summary,
                                   score, sh, narrative, "Deterministic draft",
-                                  "Aurora Global Group", 2026)
+                                  "Atlas Components Group", 2026)
     parsed = json.loads(package_to_json_bytes(package))
     assert parsed["readiness_score"] == score
     assert parsed["package_type"] == "pillar_two_data_readiness"

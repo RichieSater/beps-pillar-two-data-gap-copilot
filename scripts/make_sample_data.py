@@ -1,8 +1,8 @@
-"""Generate the synthetic 'Aurora Global Group' demo files.
+"""Generate the synthetic 'Atlas Components Group' demo files.
 
 The files intentionally contain real-world messiness:
 - entity names that differ across systems (Ltd vs Limited, typos)
-- a missing jurisdiction (Aurora UK Services Ltd in the entity master)
+- a missing jurisdiction (Atlas UK Services Ltd in the entity master)
 - missing entity-level deferred tax detail (Ireland)
 - payroll available only at country level for Singapore
 - missing tangible asset value (Netherlands)
@@ -23,12 +23,12 @@ NA = None
 
 entity_master = pd.DataFrame(
     [
-        ["AUR001", "Aurora US Inc", "United States", 100.0, "Full"],
-        ["AUR002", "Aurora IE Holdings Limited", "Ireland", 100.0, "Full"],
-        ["AUR003", "Aurora DE GmbH", "Germany", 100.0, "Full"],
-        ["AUR004", "Aurora NL B.V.", "Netherlands", 100.0, "Full"],
-        ["AUR005", "Aurora SG IP Pte Ltd", "Singapore", 100.0, "Full"],
-        ["AUR006", "Aurora UK Services Ltd", NA, 80.0, "Full"],  # jurisdiction missing
+        ["ATL001", "Atlas US Inc", "United States", 100.0, "Full"],
+        ["ATL002", "Atlas IE Holdings Limited", "Ireland", 100.0, "Full"],
+        ["ATL003", "Atlas DE GmbH", "Germany", 100.0, "Full"],
+        ["ATL004", "Atlas NL B.V.", "Netherlands", 100.0, "Full"],
+        ["ATL005", "Atlas SG IP Pte Ltd", "Singapore", 100.0, "Full"],
+        ["ATL006", "Atlas UK Services Ltd", NA, 80.0, "Full"],  # jurisdiction missing
     ],
     columns=["LE_Code", "LegalEntityName", "Country_of_Residence", "Ownership_Pct", "Consol_Method"],
 )
@@ -37,12 +37,12 @@ entity_master.to_csv(OUT / "entity_master.csv", index=False)
 # Trial balance: entity names deliberately differ from the master.
 trial_balance = pd.DataFrame(
     [
-        ["Aurora US, Inc.", 520_000_000, 80_000_000, 110_000_000, 95_000_000],
-        ["Aurora IE Holdings Ltd", 310_000_000, 95_000_000, 22_000_000, 8_000_000],
-        ["Aurora DE GmbH", 180_000_000, 24_000_000, 35_000_000, 28_000_000],
-        ["Aurora NL BV", 9_200_000, 700_000, 2_100_000, NA],          # tangible assets missing
-        ["Aurora SG IP Pte. Ltd", 140_000_000, 60_000_000, NA, 3_000_000],  # payroll missing
-        ["Aurora UK Service Ltd", 75_000_000, 6_000_000, 18_000_000, 12_000_000],  # typo: Service
+        ["Atlas US, Inc.", 520_000_000, 80_000_000, 110_000_000, 95_000_000],
+        ["Atlas IE Holdings Ltd", 310_000_000, 95_000_000, 22_000_000, 8_000_000],
+        ["Atlas DE GmbH", 180_000_000, 24_000_000, 35_000_000, 28_000_000],
+        ["Atlas NL BV", 9_200_000, 700_000, 2_100_000, NA],          # tangible assets missing
+        ["Atlas SG IP Pte. Ltd", 140_000_000, 60_000_000, NA, 3_000_000],  # payroll missing
+        ["Atlas UK Service Ltd", 75_000_000, 6_000_000, 18_000_000, 12_000_000],  # typo: Service
     ],
     columns=["Entity", "Rev_Total", "PBT_Local", "Payroll_Cost", "Tangible_Assets_NBV"],
 )
@@ -51,12 +51,12 @@ with pd.ExcelWriter(OUT / "trial_balance_by_entity.xlsx", engine="openpyxl") as 
 
 tax_provision = pd.DataFrame(
     [
-        ["Aurora US Inc", 18_000_000, 1_200_000, 2_500_000, 3_500_000],
-        ["Aurora IE Holdings Limited", 9_500_000, 800_000, NA, NA],   # deferred detail missing
-        ["Aurora DE GmbH", 7_400_000, 300_000, 600_000, 400_000],
-        ["Aurora NL B.V.", 200_000, 0, 50_000, NA],
-        ["Aurora SG IP Pte Ltd", 3_000_000, 500_000, 400_000, NA],
-        ["Aurora UK Services Ltd", 1_500_000, 100_000, 300_000, NA],
+        ["Atlas US Inc", 18_000_000, 1_200_000, 2_500_000, 3_500_000],
+        ["Atlas IE Holdings Limited", 9_500_000, 800_000, NA, NA],   # deferred detail missing
+        ["Atlas DE GmbH", 7_400_000, 300_000, 600_000, 400_000],
+        ["Atlas NL B.V.", 200_000, 0, 50_000, NA],
+        ["Atlas SG IP Pte Ltd", 3_000_000, 500_000, 400_000, NA],
+        ["Atlas UK Services Ltd", 1_500_000, 100_000, 300_000, NA],
     ],
     columns=["Entity_Name", "Curr_Tax_Exp", "TaxExpAdj", "DTA_Movement", "RD_Tax_Credits"],
 )

@@ -1,5 +1,8 @@
+import io
 import os
 import sys
+import time
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -17,6 +20,7 @@ from pillar_two_copilot.completeness import (
     gap_summary_by_jurisdiction,
     readiness_score,
 )
+from pillar_two_copilot.entity_matcher import match_entities
 from pillar_two_copilot.export import (
     build_audit_package,
     file_hash,
@@ -26,9 +30,24 @@ from pillar_two_copilot.export import (
 from pillar_two_copilot.field_catalog import FIELD_CATALOG
 from pillar_two_copilot.ingestion import load_tabular, profile_columns
 from pillar_two_copilot.memo import build_fallback_narrative, memo_to_markdown
+from pillar_two_copilot.narration import (
+    EXPECTED_KINDS,
+    SOURCE_KINDS,
+    classify_source,
+    narrate_file,
+)
 from pillar_two_copilot.safe_harbour import safe_harbour_triage
 
 SAMPLE_DIR = ROOT / "data" / "sample_inputs"
+
+# Staging order for the Atlas samples — the story builds file by file.
+DEMO_FILE_ORDER = [
+    "entity_master.csv",
+    "trial_balance_by_entity.xlsx",
+    "tax_provision_extract.csv",
+    "cbcr_report.csv",
+    "jurisdiction_tax_attributes.csv",
+]
 
 st.set_page_config(page_title="Pillar Two Data Gap Copilot", page_icon="🌍", layout="wide")
 
@@ -71,49 +90,108 @@ def severity_badge(sev):
     return {"high": "🔴 high", "medium": "🟠 medium", "low": "🟡 low"}.get(sev, sev)
 
 
+def sample_pack_bytes():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fname in DEMO_FILE_ORDER:
+            zf.write(SAMPLE_DIR / fname, fname)
+    return buf.getvalue()
+
+
+def stream_words(lines, per_word=0.018, per_line=0.10):
+    """Yield one stage's lines word by word — the typewriter for the analysis."""
+    for line in lines:
+        for word in line.split(" "):
+            yield word + " "
+            time.sleep(per_word)
+        yield "\n\n"
+        time.sleep(per_line)
+
+
+# ---------------------------------------------------------------- session state
+ss = st.session_state
+ss.setdefault("staged_samples", [])    # Atlas files staged from the sidebar
+ss.setdefault("transcripts", {})       # fname -> staged analysis transcript
+ss.setdefault("kinds", {})             # fname -> (kind_key, reason)
+ss.setdefault("mapping_overrides", {})
+ss.setdefault("memo", None)            # cached drafted memo + input fingerprint
+ss.setdefault("uploader_gen", 0)       # bumped on reset to clear the uploader
+ss.setdefault("instant_once", False)   # skip animation for one run (stage-all)
+
+# ---------------------------------------------------------------- sidebar
 with st.sidebar:
     st.header("Engagement setup")
-    group_alias = st.text_input("Group alias", value="Aurora Global Group")
+    group_alias = st.text_input("Group alias", value="Atlas Components Group")
     fiscal_year = st.selectbox("Fiscal year", [2024, 2025, 2026], index=2)
-    use_sample = st.toggle("Use synthetic Aurora sample files", value=True)
-    uploads = st.file_uploader(
-        "Upload source files (CSV / XLSX)", type=["csv", "xlsx", "xls"], accept_multiple_files=True
-    )
     run_ai = st.toggle(
         "Draft memo narrative with Claude (if key available)",
         value=False,
         help="Requires ANTHROPIC_API_KEY. Claude drafts prose only; all numbers stay deterministic.",
     )
+    animate = st.toggle(
+        "Animate copilot analysis",
+        value=True,
+        help="Streams the intake analysis line by line. Turn off for instant results.",
+    )
+
+    st.divider()
+    st.header("Demo controls")
+    st.download_button(
+        "⬇️ Atlas demo file pack (ZIP)",
+        sample_pack_bytes(),
+        file_name="atlas_demo_files.zip",
+        mime="application/zip",
+        help="The five synthetic Atlas source files — unzip before the demo and drag them in live.",
+    )
+    loaded_names = set(ss["staged_samples"])
+    next_sample = next((f for f in DEMO_FILE_ORDER if f not in loaded_names), None)
+    if next_sample:
+        if st.button(f"📂 Stage next: `{next_sample}`", width="stretch"):
+            ss["staged_samples"].append(next_sample)
+        if st.button("⏩ Stage all Atlas files", width="stretch"):
+            ss["staged_samples"] = list(DEMO_FILE_ORDER)
+            ss["instant_once"] = True
+    if st.button("🔄 Reset session", width="stretch"):
+        for key in ("staged_samples", "transcripts", "kinds", "mapping_overrides", "memo"):
+            ss.pop(key, None)
+        ss["uploader_gen"] = ss.get("uploader_gen", 0) + 1
+        ss["instant_once"] = False
+        st.rerun()
     st.caption(
         "Synthetic data only. Prototype demo: simplified field catalog, "
         "indicative transitional safe harbour thresholds, no full GloBE rules."
     )
 
-# ---------------------------------------------------------------- ingest
-sources = []  # (filename, raw_bytes)
-if use_sample:
-    for path in sorted(SAMPLE_DIR.iterdir()):
-        if path.suffix.lower() in (".csv", ".xlsx", ".xls"):
-            sources.append((path.name, path.read_bytes()))
+# ---------------------------------------------------------------- intake strip
+intake_left, intake_right = st.columns([1.5, 1])
+with intake_left:
+    st.markdown("#### 📥 Source intake")
+    uploads = st.file_uploader(
+        "Drop source files here (CSV / XLSX) — the copilot analyses each one as it lands",
+        type=["csv", "xlsx", "xls"],
+        accept_multiple_files=True,
+        key=f"uploads_{ss['uploader_gen']}",
+    )
+
+# sources: staged Atlas samples first (story order), then live uploads.
+# An upload with the same name as a staged sample wins.
+sources = {}
+for fname in ss["staged_samples"]:
+    path = SAMPLE_DIR / fname
+    if path.exists():
+        sources[fname] = path.read_bytes()
 if uploads:
     for up in uploads:
-        sources.append((up.name, up.getvalue()))
+        sources[up.name] = up.getvalue()
 
-if not sources:
-    st.info(
-        "Upload source files or enable the synthetic sample to begin. "
-        "See the **Use your own data** tab for what to provide."
-    )
-    st.stop()
+# Drop session leftovers for files no longer present (e.g. removed uploads).
+for stale in [f for f in ss["transcripts"] if f not in sources]:
+    ss["transcripts"].pop(stale, None)
+    ss["kinds"].pop(stale, None)
 
-if use_sample and uploads:
-    st.warning(
-        "You are mixing the synthetic Aurora sample with your uploaded files. "
-        "Turn off the sample toggle in the sidebar to analyse only your own data."
-    )
-
+# ---------------------------------------------------------------- parse
 frames, profiles, source_hashes, load_errors = {}, [], {}, []
-for fname, raw in sources:
+for fname, raw in sources.items():
     source_hashes[fname] = file_hash(raw)
     try:
         for sheet, df in load_tabular(raw, filename=fname).items():
@@ -123,13 +201,9 @@ for fname, raw in sources:
         load_errors.append(f"{fname}: {exc}")
 if load_errors:
     st.warning(" • ".join(load_errors))
-if not frames:
-    st.error("No readable tabular data found.")
-    st.stop()
 
 # ---------------------------------------------------------------- mapping state
 suggestions = suggest_mappings(profiles)
-st.session_state.setdefault("mapping_overrides", {})
 
 
 def mapping_key(m):
@@ -138,7 +212,7 @@ def mapping_key(m):
 
 mappings = []
 for m in suggestions:
-    override = st.session_state["mapping_overrides"].get(mapping_key(m))
+    override = ss["mapping_overrides"].get(mapping_key(m))
     record = dict(m)
     if override is not None:
         field = override.get("field", record["suggested_field"])
@@ -150,7 +224,7 @@ for m in suggestions:
             record["confidence"] = 1.0
     mappings.append(record)
 
-# ---------------------------------------------------------------- assemble + analyse
+# ---------------------------------------------------------------- reference entities
 reference_entities = None
 for (fname, sheet), df in frames.items():
     cols = {
@@ -163,23 +237,112 @@ for (fname, sheet), df in frames.items():
         reference_entities = df[name_cols[0]].dropna().tolist()  # entity master wins
         break
 
-entity_df, jurisdiction_df, entity_matches = assemble_datasets(frames, mappings, reference_entities)
-gaps = find_gaps(entity_df, jurisdiction_df)
-score = readiness_score(gaps, entity_df, jurisdiction_df)
-gap_summary = gap_summary_by_jurisdiction(gaps)
-sh_results = safe_harbour_triage(entity_df, jurisdiction_df, fiscal_year)
+# ---------------------------------------------------------------- live analysis of new files
+new_files = [f for f in sources if f not in ss["transcripts"]]
 
-high_gaps = [g for g in gaps if g["severity"] == "high"]
-pending_review = [m for m in mappings if m["suggested_field"] and not m["approved"]]
-fuzzy_matches = [m for m in entity_matches if m["status"] != "exact"]
-unmatched = [m for m in entity_matches if m["status"] == "unmatched"]
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Readiness score", f"{score:.0%}")
-c2.metric("Data gaps", len(gaps), delta=f"-{len(high_gaps)} high severity", delta_color="inverse")
-c3.metric("Entities", len(entity_df))
-c4.metric("Jurisdictions", len(jurisdiction_df))
-c5.metric("Mappings awaiting review", len(pending_review))
+def _file_entity_names(fname):
+    """Entity names in one file, via its suggested entity_name column."""
+    for (f, sheet), df in frames.items():
+        if f != fname:
+            continue
+        for m in mappings:
+            if (m["source_file"], m["source_sheet"]) == (f, sheet) and m["suggested_field"] == "entity_name":
+                return df[m["source_column"]].dropna().tolist()
+    return []
+
+
+def _analysis_order(fnames):
+    """Entity master first, then story order, so reconciliation has a reference."""
+    def rank(f):
+        kind, _ = classify_source([m for m in mappings if m["source_file"] == f])
+        kind_rank = EXPECTED_KINDS.index(kind) if kind in EXPECTED_KINDS else len(EXPECTED_KINDS)
+        return (0 if kind == "entity_master" else 1, kind_rank, f)
+    return sorted(fnames, key=rank)
+
+
+animate_now = animate and not ss["instant_once"]
+ss["instant_once"] = False
+
+analysis_zone = st.container()
+for fname in _analysis_order(new_files):
+    file_mappings = [m for m in mappings if m["source_file"] == fname]
+    file_profiles = [p for p in profiles if p["source_file"] == fname]
+    sheets = [(sheet, len(df), len(df.columns)) for (f, sheet), df in frames.items() if f == fname]
+    if not sheets:
+        continue
+    kind, reason = classify_source(file_mappings)
+    match_results = None
+    if kind != "entity_master" and reference_entities:
+        names = _file_entity_names(fname)
+        if names:
+            match_results = match_entities(reference_entities, names)
+    stages = narrate_file(
+        fname, sheets, file_profiles, file_mappings, kind, reason,
+        match_results=match_results,
+        n_reference=len(reference_entities or []),
+        source_hash=source_hashes.get(fname, ""),
+    )
+    with analysis_zone:
+        with st.status(f"🤖 Copilot analysing `{fname}`…", expanded=True) as status:
+            for stage in stages:
+                st.markdown(f"**{stage['label']}**")
+                if animate_now:
+                    st.write_stream(stream_words(stage["lines"]))
+                else:
+                    st.markdown("\n\n".join(stage["lines"]))
+            status.update(
+                label=f"`{fname}` — {SOURCE_KINDS[kind]}", state="complete", expanded=False,
+            )
+    ss["transcripts"][fname] = stages
+    ss["kinds"][fname] = (kind, reason)
+    ss["memo"] = None  # new data invalidates a drafted memo
+
+# ---------------------------------------------------------------- intake checklist
+with intake_right:
+    st.markdown("#### Source checklist")
+    kinds_present = {k for f, (k, _) in ss["kinds"].items() if f in sources}
+    for kind in EXPECTED_KINDS:
+        files_of_kind = [f for f, (k, _) in ss["kinds"].items() if k == kind and f in sources]
+        if files_of_kind:
+            st.markdown(f"✅ {SOURCE_KINDS[kind]} — `{files_of_kind[0]}`")
+        else:
+            st.markdown(f"◻️ {SOURCE_KINDS[kind]}")
+    others = [f for f, (k, _) in ss["kinds"].items() if k == "other" and f in sources]
+    for f in others:
+        st.markdown(f"❔ Unclassified — `{f}` (map its columns in Tab 2)")
+    missing_kinds = [k for k in EXPECTED_KINDS if k not in kinds_present]
+    if sources and missing_kinds:
+        st.caption(f"{len(missing_kinds)} source type(s) still missing — anything absent simply shows up as a gap.")
+
+if not frames:
+    st.info(
+        "**No source files yet.** Drag files into the intake zone above, or use the sidebar "
+        "demo controls to stage the synthetic Atlas files one at a time. "
+        "While you're empty-handed, the **📖 Demo story** tab below sets the scene."
+    )
+
+# ---------------------------------------------------------------- analyse
+if frames:
+    entity_df, jurisdiction_df, entity_matches = assemble_datasets(frames, mappings, reference_entities)
+    gaps = find_gaps(entity_df, jurisdiction_df)
+    score = readiness_score(gaps, entity_df, jurisdiction_df)
+    gap_summary = gap_summary_by_jurisdiction(gaps)
+    sh_results = safe_harbour_triage(entity_df, jurisdiction_df, fiscal_year)
+
+    high_gaps = [g for g in gaps if g["severity"] == "high"]
+    pending_review = [m for m in mappings if m["suggested_field"] and not m["approved"]]
+    fuzzy_matches = [m for m in entity_matches if m["status"] != "exact"]
+    unmatched = [m for m in entity_matches if m["status"] == "unmatched"]
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Readiness score", f"{score:.0%}")
+    c2.metric("Data gaps", len(gaps), delta=f"-{len(high_gaps)} high severity", delta_color="inverse")
+    c3.metric("Entities", len(entity_df))
+    c4.metric("Jurisdictions", len(jurisdiction_df))
+    c5.metric("Mappings awaiting review", len(pending_review))
+
+NO_DATA_MSG = "Waiting for source files — add them in the intake zone above."
 
 tabs = st.tabs(
     ["📖 Demo story", "1 · Source intake", "2 · Mapping review", "3 · Data gap dashboard",
@@ -188,18 +351,20 @@ tabs = st.tabs(
 
 # ---------------------------------------------------------------- tab 0: story
 with tabs[0]:
-    st.subheader("Meet the demo client: Aurora Global Group")
+    st.subheader("Meet the demo client: Atlas Components Group")
     left, right = st.columns([1.25, 0.75])
     with left:
         st.markdown(
             """
-**Aurora Global Group** is a fictional consumer-electronics multinational headquartered in the
-United States, with consolidated revenue of roughly **€1.2bn** — comfortably above the
-**€750m** threshold that pulls a group into Pillar Two.
+**Atlas Components Group** is a fictional U.S.-parented industrial-electronics multinational
+(advanced components, sensors, and power modules) with consolidated revenue of roughly
+**$4.8bn** — comfortably above the **€750m** threshold that pulls a group into Pillar Two.
+This engagement is the **first-wave GIR readiness pilot**: six jurisdictions covering roughly
+**€1.2bn** of in-scope revenue, with the remaining group entities to follow in wave two.
 
-Like most groups its size, Aurora grew by acquisition, and its data shows it:
+Like most groups its size, Atlas grew by acquisition, and its data shows it:
 
-- The **US parent** (Aurora US Inc) runs the group on SAP and owns the consolidation.
+- The **US parent** (Atlas US Inc) runs the group on SAP and owns the consolidation.
 - An **Irish holding company** owns the European businesses and books most of the group's
   financing income — at an effective tax rate well below 15%.
 - A **Singapore IP company** licenses technology to the operating entities. It is highly
@@ -210,20 +375,20 @@ Like most groups its size, Aurora grew by acquisition, and its data shows it:
 - A **UK services company** was acquired eighteen months ago and still is not fully set up
   in the legal-entity master — nobody has recorded its tax jurisdiction.
 
-**The trigger:** Aurora's Head of Tax has been asked by the audit committee whether the group
+**The trigger:** Atlas's Head of Tax has been asked by the audit committee whether the group
 can rely on the transitional CbCR safe harbours — and if not, what the top-up tax exposure is.
 Before anyone can answer, the tax team needs to assemble entity-level data from **four systems
 that don't agree with each other**: the legal-entity register, the SAP trial balance, the tax
 provision tool, and the CbC report prepared by a different team.
 
-**What this copilot does for them:** ingests those messy extracts, maps every column to a
-Pillar Two data model (with a reviewer approving each mapping), reports exactly which data is
-missing, who owns it, and what to request — and triages which safe harbour tests can even be
-evaluated today.
+**What this copilot does for them:** ingests those messy extracts *as you drop them in*,
+maps every column to a Pillar Two data model (with a reviewer approving each mapping), reports
+exactly which data is missing, who owns it, and what to request — and triages which safe
+harbour tests can even be evaluated today.
             """
         )
     with right:
-        st.markdown("**The problems planted in Aurora's data** (all real-world patterns):")
+        st.markdown("**The problems planted in Atlas's data** (all real-world patterns):")
         st.dataframe(
             pd.DataFrame(
                 [
@@ -242,63 +407,85 @@ evaluated today.
             width="stretch",
         )
         st.caption(
-            "Aurora Global Group is entirely synthetic: every entity, number, and name was "
+            "Atlas Components Group is entirely synthetic: every entity, number, and name was "
             "generated for this demo and any resemblance to a real company is coincidental."
         )
 
 # ---------------------------------------------------------------- tab 1
 with tabs[1]:
-    st.subheader("Detected files, sheets and column profiles")
-    st.caption("Every downstream number traces back to a file / sheet / column captured here (with SHA-256 hash).")
-    hash_df = pd.DataFrame(
-        [{"File": f, "SHA-256 (prefix)": h} for f, h in source_hashes.items()]
-    )
-    st.dataframe(hash_df, hide_index=True, width="stretch")
-    profile_df = pd.DataFrame(profiles)
-    profile_df["sample_values"] = profile_df["sample_values"].map(lambda v: ", ".join(v))
-    st.dataframe(profile_df, hide_index=True, width="stretch", height=380)
+    if not frames:
+        st.info(NO_DATA_MSG)
+    else:
+        st.subheader("Copilot analysis transcript")
+        st.caption(
+            "What the copilot found in each file as it landed — every line was produced by the "
+            "deterministic engine and is preserved here for review."
+        )
+        for fname, stages in ss["transcripts"].items():
+            if fname not in sources:
+                continue
+            kind, _ = ss["kinds"].get(fname, ("other", ""))
+            with st.expander(f"🤖 `{fname}` — {SOURCE_KINDS[kind]}"):
+                for stage in stages:
+                    st.markdown(f"**{stage['label']}**")
+                    st.markdown("\n\n".join(stage["lines"]))
 
-    if fuzzy_matches or unmatched:
-        st.subheader("Entity name reconciliation")
-        st.caption("Names rarely match across ERP / provision / legal-entity systems — fuzzy matches need a reviewer's eye.")
-        st.dataframe(pd.DataFrame(entity_matches), hide_index=True, width="stretch")
+        st.subheader("Detected files, sheets and column profiles")
+        st.caption("Every downstream number traces back to a file / sheet / column captured here (with SHA-256 hash).")
+        hash_df = pd.DataFrame(
+            [{"File": f, "SHA-256 (prefix)": h} for f, h in source_hashes.items()]
+        )
+        st.dataframe(hash_df, hide_index=True, width="stretch")
+        profile_df = pd.DataFrame(profiles)
+        profile_df["sample_values"] = profile_df["sample_values"].map(lambda v: ", ".join(v))
+        st.dataframe(profile_df, hide_index=True, width="stretch", height=380)
+
+        if fuzzy_matches or unmatched:
+            st.subheader("Entity name reconciliation")
+            st.caption("Names rarely match across ERP / provision / legal-entity systems — fuzzy matches need a reviewer's eye.")
+            st.dataframe(pd.DataFrame(entity_matches), hide_index=True, width="stretch")
 
 # ---------------------------------------------------------------- tab 2
 with tabs[2]:
-    st.subheader("AI-suggested mappings — reviewer approves, mappings drive everything downstream")
-    st.caption(
-        "Heuristic engine scores each source column against the Pillar Two field catalog. "
-        "High-confidence matches are pre-approved; anything else waits for you."
-    )
-    field_options = [""] + list(FIELD_CATALOG.keys())
-    for m in mappings:
-        key = mapping_key(m)
-        cols = st.columns([2.2, 2.2, 1.0, 2.4, 0.9])
-        cols[0].markdown(f"**{m['source_column']}**  \n`{m['source_file']}` / {m['source_sheet']}")
-        current = m["suggested_field"] or ""
-        chosen = cols[1].selectbox(
-            "Pillar Two field", field_options,
-            index=field_options.index(current) if current in field_options else 0,
-            key=f"field_{key}", label_visibility="collapsed",
-            format_func=lambda f: FIELD_CATALOG[f]["label"] if f else "(unmapped)",
+    if not frames:
+        st.info(NO_DATA_MSG)
+    else:
+        st.subheader("AI-suggested mappings — reviewer approves, mappings drive everything downstream")
+        st.caption(
+            "Heuristic engine scores each source column against the Pillar Two field catalog. "
+            "High-confidence matches are pre-approved; anything else waits for you."
         )
-        cols[2].markdown(f"conf **{m['confidence']:.2f}**")
-        cols[3].caption(m["note"])
-        approved = cols[4].checkbox("approve", value=m["approved"], key=f"appr_{key}")
-        if chosen != current or approved != m["approved"]:
-            st.session_state["mapping_overrides"][key] = {
-                "field": chosen or None,
-                "approved": approved and bool(chosen),
-                "manual": chosen != (m["suggested_field"] or "") and bool(chosen),
-            }
-            st.rerun()
+        field_options = [""] + list(FIELD_CATALOG.keys())
+        for m in mappings:
+            key = mapping_key(m)
+            cols = st.columns([2.2, 2.2, 1.0, 2.4, 0.9])
+            cols[0].markdown(f"**{m['source_column']}**  \n`{m['source_file']}` / {m['source_sheet']}")
+            current = m["suggested_field"] or ""
+            chosen = cols[1].selectbox(
+                "Pillar Two field", field_options,
+                index=field_options.index(current) if current in field_options else 0,
+                key=f"field_{key}", label_visibility="collapsed",
+                format_func=lambda f: FIELD_CATALOG[f]["label"] if f else "(unmapped)",
+            )
+            cols[2].markdown(f"conf **{m['confidence']:.2f}**")
+            cols[3].caption(m["note"])
+            approved = cols[4].checkbox("approve", value=m["approved"], key=f"appr_{key}")
+            if chosen != current or approved != m["approved"]:
+                ss["mapping_overrides"][key] = {
+                    "field": chosen or None,
+                    "approved": approved and bool(chosen),
+                    "manual": chosen != (m["suggested_field"] or "") and bool(chosen),
+                }
+                st.rerun()
 
 # ---------------------------------------------------------------- tab 3
 with tabs[3]:
-    st.subheader("Missing data by entity and jurisdiction")
-    if not gaps:
+    if not frames:
+        st.info(NO_DATA_MSG)
+    elif not gaps:
         st.success("No gaps against the simplified field catalog.")
     else:
+        st.subheader("Missing data by entity and jurisdiction")
         left, right = st.columns([1.1, 0.9])
         with left:
             gaps_df = pd.DataFrame(gaps)
@@ -325,89 +512,125 @@ with tabs[3]:
 
 # ---------------------------------------------------------------- tab 4
 with tabs[4]:
-    st.subheader(f"Transitional CbCR safe harbour readiness — FY{fiscal_year}")
-    st.caption(
-        "Readiness triage, not advice: can each test be evaluated with the data on hand, "
-        "and where it can, what is the indicative result? Every result requires tax technical review."
-    )
-    overview = pd.DataFrame(
-        [{
-            "Jurisdiction": r["jurisdiction"],
-            "Can evaluate?": r["can_evaluate"],
-            "Indicative passes": ", ".join(r["indicative_passes"]) or "—",
-            "Missing items": "; ".join(r["missing_items"]) or "—",
-        } for r in sh_results]
-    )
-    st.dataframe(overview, hide_index=True, width="stretch")
-    for r in sh_results:
-        with st.expander(f"{r['jurisdiction']} — detail"):
-            st.dataframe(
-                pd.DataFrame([
-                    {"Test": t["test"], "Status": t["status"],
-                     "Detail": t.get("detail", ""), "Missing": "; ".join(t["missing"])}
-                    for t in r["tests"]
-                ]),
-                hide_index=True, width="stretch",
-            )
+    if not frames:
+        st.info(NO_DATA_MSG)
+    else:
+        st.subheader(f"Transitional CbCR safe harbour readiness — FY{fiscal_year}")
+        st.caption(
+            "Readiness triage, not advice: can each test be evaluated with the data on hand, "
+            "and where it can, what is the indicative result? Every result requires tax technical review."
+        )
+        overview = pd.DataFrame(
+            [{
+                "Jurisdiction": r["jurisdiction"],
+                "Can evaluate?": r["can_evaluate"],
+                "Indicative passes": ", ".join(r["indicative_passes"]) or "—",
+                "Missing items": "; ".join(r["missing_items"]) or "—",
+            } for r in sh_results]
+        )
+        st.dataframe(overview, hide_index=True, width="stretch")
+        for r in sh_results:
+            with st.expander(f"{r['jurisdiction']} — detail"):
+                st.dataframe(
+                    pd.DataFrame([
+                        {"Test": t["test"], "Status": t["status"],
+                         "Detail": t.get("detail", ""), "Missing": "; ".join(t["missing"])}
+                        for t in r["tests"]
+                    ]),
+                    hide_index=True, width="stretch",
+                )
 
 # ---------------------------------------------------------------- tab 5
 with tabs[5]:
-    st.subheader("Workpaper-style readiness memo")
-    narrative_source = "Deterministic draft"
-    if run_ai:
-        if not claude_available():
-            st.warning("ANTHROPIC_API_KEY not set (or anthropic not installed) — using deterministic draft.")
-            narrative = build_fallback_narrative(score, gaps, sh_results)
+    if not frames:
+        st.info(NO_DATA_MSG)
+    else:
+        st.subheader("Workpaper-style readiness memo")
+        blocking = bool(pending_review) or bool(unmatched)
+        if blocking:
+            st.warning(
+                "Final audit package is blocked until all suggested mappings are approved/rejected "
+                "and unmatched entities are resolved. The memo can still be drafted."
+            )
         else:
-            try:
-                with st.spinner("Claude is drafting the narrative…"):
-                    narrative = draft_memo_narrative({
-                        "group_alias": group_alias,
-                        "fiscal_year": fiscal_year,
-                        "readiness_score": score,
-                        "gap_summary": gap_summary,
-                        "gaps": gaps,
-                        "entity_match_exceptions": fuzzy_matches + unmatched,
-                        "safe_harbour": [
-                            {k: v for k, v in r.items() if k != "tests"} for r in sh_results
-                        ],
-                    })
-                narrative_source = "Claude draft (claude-opus-4-8) — deterministic numbers"
-            except Exception as exc:
-                st.warning(f"Claude unavailable ({exc}) — using deterministic draft.")
-                narrative = build_fallback_narrative(score, gaps, sh_results)
-    else:
-        narrative = build_fallback_narrative(score, gaps, sh_results)
+            st.success("Review gates satisfied: mappings dispositioned and entities reconciled.")
 
-    memo_md = memo_to_markdown(
-        narrative, score, gaps, gap_summary, sh_results, mappings,
-        group_alias, fiscal_year, narrative_source,
-    )
-    st.markdown(memo_md)
-
-    st.divider()
-    blocking = bool(pending_review) or bool(unmatched)
-    if blocking:
-        st.warning(
-            "Final audit package is blocked until all suggested mappings are approved/rejected "
-            "and unmatched entities are resolved. Draft memo and gap register remain available."
+        fingerprint = (
+            tuple(sorted(sources)), f"{score:.4f}", len(gaps),
+            len(pending_review), len(unmatched), fiscal_year, group_alias,
         )
-    else:
-        st.success("Review gates satisfied: mappings dispositioned and entities reconciled.")
-    package = build_audit_package(
-        source_hashes, mappings, entity_matches, gaps, gap_summary, score,
-        sh_results, narrative, narrative_source, group_alias, fiscal_year,
-    )
-    d1, d2 = st.columns(2)
-    d1.download_button(
-        "Download readiness memo (Markdown)", memo_md.encode("utf-8"),
-        file_name="pillar_two_readiness_memo.md", mime="text/markdown",
-    )
-    d2.download_button(
-        "Download final audit package (JSON)", package_to_json_bytes(package),
-        file_name="pillar_two_audit_package.json", mime="application/json",
-        disabled=blocking,
-    )
+        memo_cache = ss.get("memo")
+        cache_valid = bool(memo_cache) and memo_cache["fingerprint"] == fingerprint
+        if memo_cache and not cache_valid:
+            st.info("The inputs have changed since the memo was drafted — draft it again.")
+
+        draft_clicked = st.button(
+            "✍️ Draft readiness memo" if not cache_valid else "✍️ Re-draft memo",
+            type="primary",
+        )
+
+        if draft_clicked:
+            narrative_source = "Deterministic draft"
+            if run_ai and claude_available():
+                try:
+                    with st.spinner("Claude is drafting the narrative…"):
+                        narrative = draft_memo_narrative({
+                            "group_alias": group_alias,
+                            "fiscal_year": fiscal_year,
+                            "readiness_score": score,
+                            "gap_summary": gap_summary,
+                            "gaps": gaps,
+                            "entity_match_exceptions": fuzzy_matches + unmatched,
+                            "safe_harbour": [
+                                {k: v for k, v in r.items() if k != "tests"} for r in sh_results
+                            ],
+                        })
+                    narrative_source = "Claude draft (claude-opus-4-8) — deterministic numbers"
+                except Exception as exc:
+                    st.warning(f"Claude unavailable ({exc}) — using deterministic draft.")
+                    narrative = build_fallback_narrative(score, gaps, sh_results)
+            else:
+                if run_ai:
+                    st.warning("ANTHROPIC_API_KEY not set (or anthropic not installed) — using deterministic draft.")
+                narrative = build_fallback_narrative(score, gaps, sh_results)
+
+            memo_md = memo_to_markdown(
+                narrative, score, gaps, gap_summary, sh_results, mappings,
+                group_alias, fiscal_year, narrative_source,
+            )
+            ss["memo"] = {
+                "narrative": narrative, "source": narrative_source,
+                "md": memo_md, "fingerprint": fingerprint,
+            }
+            # Stream the narrative half live; render the appendix tables instantly.
+            split_marker = "\n## 3."
+            if animate and split_marker in memo_md:
+                head, tail = memo_md.split(split_marker, 1)
+                st.write_stream(stream_words(head.split("\n"), per_word=0.012, per_line=0.0))
+                st.markdown(split_marker.strip() + tail)
+            else:
+                st.markdown(memo_md)
+        elif cache_valid:
+            st.caption(f"Narrative source: {memo_cache['source']}")
+            st.markdown(memo_cache["md"])
+
+        memo_cache = ss.get("memo")
+        if memo_cache and memo_cache["fingerprint"] == fingerprint:
+            st.divider()
+            package = build_audit_package(
+                source_hashes, mappings, entity_matches, gaps, gap_summary, score,
+                sh_results, memo_cache["narrative"], memo_cache["source"], group_alias, fiscal_year,
+            )
+            d1, d2 = st.columns(2)
+            d1.download_button(
+                "Download readiness memo (Markdown)", memo_cache["md"].encode("utf-8"),
+                file_name="pillar_two_readiness_memo.md", mime="text/markdown",
+            )
+            d2.download_button(
+                "Download final audit package (JSON)", package_to_json_bytes(package),
+                file_name="pillar_two_audit_package.json", mime="application/json",
+                disabled=blocking,
+            )
 
 # ---------------------------------------------------------------- tab 6: bring your own data
 with tabs[6]:
@@ -421,10 +644,10 @@ the mapper suggests a Pillar Two field for each column and you confirm or fix th
 
 **How to use it with real extracts:**
 
-1. Turn **off** the *"Use synthetic Aurora sample files"* toggle in the sidebar.
-2. Upload your files (as many as you like).
-3. Review the suggested mappings in Tab 2 — approve, remap, or reject each column.
-4. Read the gaps, safe harbour triage, and memo in Tabs 3–5.
+1. Drop your files into the **Source intake** zone at the top (as many as you like) and watch
+   the copilot analyse each one.
+2. Review the suggested mappings in Tab 2 — approve, remap, or reject each column.
+3. Read the gaps, safe harbour triage, and memo in Tabs 3–5.
 
 **What data to provide** (more is better, but the app degrades gracefully — anything missing
 simply shows up as a gap with a remediation request):

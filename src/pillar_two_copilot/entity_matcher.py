@@ -1,7 +1,7 @@
 """Cross-file entity name reconciliation.
 
 Entity names rarely match exactly across ERP, provision, and legal-entity
-sources ("Aurora IE Holdings Ltd" vs "... Limited"). We normalize away
+sources ("Atlas IE Holdings Ltd" vs "... Limited"). We normalize away
 legal-form suffixes and punctuation, then fuzzy-match the remainder.
 """
 

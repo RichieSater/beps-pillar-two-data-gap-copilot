@@ -1,7 +1,7 @@
 LE_Code,LegalEntityName,Country_of_Residence,Ownership_Pct,Consol_Method
-AUR001,Aurora US Inc,United States,100.0,Full
-AUR002,Aurora IE Holdings Limited,Ireland,100.0,Full
-AUR003,Aurora DE GmbH,Germany,100.0,Full
-AUR004,Aurora NL B.V.,Netherlands,100.0,Full
-AUR005,Aurora SG IP Pte Ltd,Singapore,100.0,Full
-AUR006,Aurora UK Services Ltd,,80.0,Full
+ATL001,Atlas US Inc,United States,100.0,Full
+ATL002,Atlas IE Holdings Limited,Ireland,100.0,Full
+ATL003,Atlas DE GmbH,Germany,100.0,Full
+ATL004,Atlas NL B.V.,Netherlands,100.0,Full
+ATL005,Atlas SG IP Pte Ltd,Singapore,100.0,Full
+ATL006,Atlas UK Services Ltd,,80.0,Full
