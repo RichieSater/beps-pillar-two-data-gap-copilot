@@ -358,9 +358,9 @@ with tabs[0]:
             """
 **Atlas Components Group** is a synthetic U.S.-parented industrial-electronics multinational
 (advanced components, sensors, and power modules) with consolidated revenue of roughly
-**$4.8bn** — comfortably above the **€750m** global-revenue threshold that pulls a group into
+**\\$4.8bn** — comfortably above the **€750m** global-revenue threshold that pulls a group into
 Pillar Two. This engagement is the **first-wave GIR readiness pilot**: six jurisdictions
-covering roughly **$1.2bn** of revenue, with the remaining group entities to follow in wave two.
+covering roughly **\\$1.2bn** of revenue, with the remaining group entities to follow in wave two.
 The data is invented; every problem in it is one you'd recognise from a real engagement.
 
 Like most groups its size, Atlas grew by acquisition, and its data shows it:
