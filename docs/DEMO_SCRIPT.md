@@ -54,8 +54,8 @@ fiction (and there's a Q&A answer for exactly that question below).
 
 **While still on the 📖 Demo story tab** (~45 sec):
 > "The client here is Atlas Components Group — the same name that ran through the screening and
-> portfolio-monitoring demos. It's a synthetic consumer-electronics group I built to behave like a
-> real Pillar Two engagement: a low-tax Irish holding company, a Singapore IP hub with profit but no
+> portfolio-monitoring demos. It's a synthetic $4.8bn U.S.-parented industrial-electronics group I built
+> to behave like a real Pillar Two engagement: a low-tax Irish holding company, a Singapore IP hub with profit but no
 > people, a UK acquisition that never got fully onboarded, and four source systems that don't agree
 > with each other. The data is invented; every problem in it is one you'd recognize from a real client."
 
@@ -256,8 +256,9 @@ would be persistence (multi-session review, remediation tracking) and the OECD G
 as a full field catalog.
 
 **"Is the safe harbour logic complete?"**
-Deliberately simplified: published transitional thresholds (de minimis €10m/€1m, simplified
-ETR 15/16/17% by year, SBIE transition percentages), labelled *indicative* throughout. The
+Deliberately simplified: published transitional thresholds (de minimis $10m/$1m — OECD states
+these in EUR; the demo runs single-currency USD with no FX — simplified ETR 15/16/17% by year,
+SBIE transition percentages), labelled *indicative* throughout. The
 demo's value is the workflow shape — readiness triage before calculation — not rule coverage.
 
 **"What about data security?"**

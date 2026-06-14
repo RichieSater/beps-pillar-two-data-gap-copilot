@@ -30,7 +30,7 @@ Optional AI narrative: `export ANTHROPIC_API_KEY=...` and flip the "Draft memo n
 
 ## The demo flow
 
-0. **Demo story (📖 tab).** The app opens **empty** on the story of **Atlas Components Group** — a fully synthetic €1.2bn consumer-electronics multinational built for this demo: a low-ETR Irish holding company, a people-light Singapore IP hub, a half-onboarded UK acquisition, and four source systems that don't agree. The tab tells the story and lists every problem planted in the data.
+0. **Demo story (📖 tab).** The app opens **empty** on the story of **Atlas Components Group** — a fully synthetic $4.8bn U.S.-parented industrial-electronics multinational built for this demo (this pilot covers a ~$1.2bn first wave of six jurisdictions): a low-ETR Irish holding company, a people-light Singapore IP hub, a half-onboarded UK acquisition, and four source systems that don't agree. The tab tells the story and lists every problem planted in the data.
 1. **Live intake (drop zone, top of page).** The presenter drags the five messy Atlas files in one at a time — entity master, Excel trial balance, tax provision extract, CbCR report, jurisdiction attributes (grab them via the sidebar **"Atlas demo file pack (ZIP)"**, or click **"Stage next"** to feed them in without files). As each lands, the copilot **streams its analysis live**: profiling and hashing the file, mapping columns with confidence and reasoning, classifying the source, and reconciling entity names — including catching the *"Atlas UK Service Ltd"* typo at 0.97 similarity and flagging it for human review. Every streamed line is real deterministic-engine output; a checklist tracks the five expected source types, and the transcripts are preserved in Tab 1 as workpaper evidence.
 2. **Mapping review (Tab 2).** A heuristic engine maps source columns (`PBT_Local`, `TaxExpAdj`, `Rev_Total`…) to a Pillar Two field catalog with confidence scores. High-confidence matches are pre-approved; `Tangible_Assets_NBV` (0.85) and the unmapped `Employees` column wait for the reviewer. The reviewer can remap or reject anything — approvals drive everything downstream.
 3. **Data gap dashboard (Tab 3).** 15 gaps, severity-weighted readiness score of 87%. Headlines: Ireland is missing entity-level deferred tax detail (blocks GloBE ETR), Singapore has no entity-level payroll (blocks SBIE), the UK entity has no jurisdiction assigned (blocks everything). Each gap carries a likely data owner and a ready-to-send remediation request.
@@ -89,7 +89,7 @@ Data flow: `load files → profile columns → suggest mappings → human review
 
 ## The synthetic dataset (planted problems)
 
-`scripts/make_sample_data.py` builds "Atlas Components Group" (6 entities, 6 jurisdictions, >€750m revenue) with deliberate real-world messiness:
+`scripts/make_sample_data.py` builds "Atlas Components Group" (6 entities, 6 jurisdictions, ~$1.2bn first-wave revenue) with deliberate real-world messiness:
 
 | Planted problem | Where | What the app does |
 | --- | --- | --- |

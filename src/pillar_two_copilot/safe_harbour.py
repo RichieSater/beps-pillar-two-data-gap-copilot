@@ -10,8 +10,8 @@ technical review.
 import pandas as pd
 
 # Transitional CbCR safe harbour parameters (OECD, Dec 2022 guidance).
-DE_MINIMIS_REVENUE = 10_000_000  # EUR
-DE_MINIMIS_PROFIT = 1_000_000  # EUR
+DE_MINIMIS_REVENUE = 10_000_000  # USD (OECD de minimis is EUR 10m; demo runs single-currency USD, no FX)
+DE_MINIMIS_PROFIT = 1_000_000  # USD (OECD de minimis is EUR 1m; demo runs single-currency USD, no FX)
 SIMPLIFIED_ETR_RATE = {2023: 0.15, 2024: 0.15, 2025: 0.16, 2026: 0.17}
 # Transitional SBIE percentages step down annually; demo uses FY2026 values.
 SBIE_PAYROLL_PCT = 0.094
@@ -35,7 +35,7 @@ def evaluate_jurisdiction(jur_row, entity_rows, fiscal_year=2026):
 
     tests = []
 
-    # 1. De minimis: revenue < EUR 10m AND PBT < EUR 1m
+    # 1. De minimis: revenue < 10m AND PBT < 1m (USD basis; OECD thresholds are EUR 10m / 1m)
     missing = [m for m, v in [("CbCR revenue", revenue), ("CbCR profit before tax", pbt)] if v is None]
     if missing:
         tests.append({"test": "De minimis", "can_evaluate": False, "missing": missing, "status": "Cannot evaluate"})
@@ -44,7 +44,7 @@ def evaluate_jurisdiction(jur_row, entity_rows, fiscal_year=2026):
         tests.append({
             "test": "De minimis", "can_evaluate": True, "missing": [],
             "status": "Indicative pass" if passed else "Indicative fail",
-            "detail": f"Revenue €{revenue:,.0f} vs €10m; PBT €{pbt:,.0f} vs €1m",
+            "detail": f"Revenue ${revenue:,.0f} vs $10m; PBT ${pbt:,.0f} vs $1m",
         })
 
     # 2. Simplified ETR: covered taxes (income tax accrued) / PBT >= transition rate
@@ -89,7 +89,7 @@ def evaluate_jurisdiction(jur_row, entity_rows, fiscal_year=2026):
         tests.append({
             "test": "Routine profits", "can_evaluate": True, "missing": [],
             "status": "Indicative pass" if passed else "Indicative fail",
-            "detail": f"PBT €{pbt:,.0f} vs SBIE amount €{sbie:,.0f}",
+            "detail": f"PBT ${pbt:,.0f} vs SBIE amount ${sbie:,.0f}",
         })
 
     evaluable = sum(1 for t in tests if t["can_evaluate"])

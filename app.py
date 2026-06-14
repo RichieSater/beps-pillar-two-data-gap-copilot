@@ -351,16 +351,17 @@ tabs = st.tabs(
 
 # ---------------------------------------------------------------- tab 0: story
 with tabs[0]:
-    st.subheader("Meet the demo client: Atlas Components Group")
+    st.subheader("Atlas Components Group — the engagement behind this demo")
     left, right = st.columns([1.25, 0.75])
     with left:
         st.markdown(
             """
-**Atlas Components Group** is a fictional U.S.-parented industrial-electronics multinational
+**Atlas Components Group** is a synthetic U.S.-parented industrial-electronics multinational
 (advanced components, sensors, and power modules) with consolidated revenue of roughly
-**$4.8bn** — comfortably above the **€750m** threshold that pulls a group into Pillar Two.
-This engagement is the **first-wave GIR readiness pilot**: six jurisdictions covering roughly
-**€1.2bn** of in-scope revenue, with the remaining group entities to follow in wave two.
+**$4.8bn** — comfortably above the **€750m** global-revenue threshold that pulls a group into
+Pillar Two. This engagement is the **first-wave GIR readiness pilot**: six jurisdictions
+covering roughly **$1.2bn** of revenue, with the remaining group entities to follow in wave two.
+The data is invented; every problem in it is one you'd recognise from a real engagement.
 
 Like most groups its size, Atlas grew by acquisition, and its data shows it:
 
@@ -677,7 +678,7 @@ simply shows up as a gap with a remediation request):
 - The file that contains **both an entity ID and entity names** is treated as the entity
   master; entity names in every other file are reconciled to it (suffix-aware fuzzy matching,
   so *"Ltd"* vs *"Limited"* is handled — genuine typos are flagged for review in Tab 1).
-- Use **one currency basis** across files (the demo assumes EUR); the app does not translate.
+- Use **one currency basis** across files (the demo assumes USD); the app does not translate.
 - Jurisdiction names must be **spelled consistently** between entity-level and
   jurisdiction-level files ("United Kingdom" in both, not "UK" in one).
 - Amounts should be plain numbers (no thousands separators stored as text).
