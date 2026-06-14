@@ -1,5 +1,7 @@
 # Demo Script — Pillar Two Data Gap Copilot
 
+**Audience:** generic / any Big 4 viewer. The tailored, named recording script lives outside the repo in `~/dev/_demo-prep/`.
+
 Presenter walkthrough for the live app. Target length: **8–10 minutes** plus Q&A.
 Live app: **https://pillar-two-data-gap-copilot.streamlit.app** • Repo: **https://github.com/RichieSater/beps-pillar-two-data-gap-copilot**
 
@@ -51,11 +53,11 @@ fiction (and there's a Q&A answer for exactly that question below).
 > realistic mess, one file at a time."
 
 **While still on the 📖 Demo story tab** (~45 sec):
-> "Meet Atlas Components Group — fully synthetic, €1.2bn consumer electronics group, comfortably
-> in Pillar Two scope. A low-tax Irish holding company, a Singapore IP hub with profit but no
-> people, a UK acquisition that never got fully onboarded, and four source systems that don't
-> agree with each other. Every problem in this table is planted in the files sitting in my
-> Downloads folder — and every one is a pattern you'd recognize from real engagements."
+> "The client here is Atlas Components Group — the same name that ran through the screening and
+> portfolio-monitoring demos. It's a synthetic consumer-electronics group I built to behave like a
+> real Pillar Two engagement: a low-tax Irish holding company, a Singapore IP hub with profit but no
+> people, a UK acquisition that never got fully onboarded, and four source systems that don't agree
+> with each other. The data is invented; every problem in it is one you'd recognize from a real client."
 
 ---
 
